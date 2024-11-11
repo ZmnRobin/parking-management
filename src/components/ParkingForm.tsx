@@ -1,6 +1,7 @@
 "use client";
 import { db } from "@/config/firebaseConfig";
-import { addDoc, collection, Timestamp } from "firebase/firestore";
+import { addDoc, doc, getDoc, updateDoc, collection, Timestamp } from "firebase/firestore";
+import { useParams, useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
 
 interface FormState {
@@ -17,7 +18,11 @@ interface FormState {
 
 interface HandleSubmitEvent extends React.FormEvent<HTMLFormElement> {}
 
-export default function ParkingForm() {
+export default function ParkingForm({ editMode = false }) {
+    const router = useRouter();
+    const params = useParams();
+    const vehicleId = params.vehicle_id; // vehicle ID from URL params
+
     const [form, setForm] = useState<FormState>({
         licenseNumber: "",
         vehicleType: "Car",
@@ -29,6 +34,25 @@ export default function ParkingForm() {
         exitTime: "",
         parkingCharge: 0,
     });
+
+    // Load vehicle data when editMode is enabled
+    useEffect(() => {
+        if (editMode && vehicleId) {
+            const fetchVehicleData = async () => {
+                const vehicleRef = doc(db, "vehicles", vehicleId);
+                const vehicleSnap = await getDoc(vehicleRef);
+                if (vehicleSnap.exists()) {
+                    const data = vehicleSnap.data() as FormState;
+                    setForm({
+                        ...data,
+                        entryTime: data.entryTime?.toDate().toISOString().slice(0, 16) || "",
+                        exitTime: data.exitTime?.toDate().toISOString().slice(0, 16) || "",
+                    });
+                }
+            };
+            fetchVehicleData();
+        }
+    }, [editMode, vehicleId]);
 
     useEffect(() => {
         if (form.entryTime && form.exitTime) {
@@ -56,41 +80,61 @@ export default function ParkingForm() {
         }));
     };
 
-    // Handle form submission
+    // Handle form submission for add or update
     const handleSubmit = async (e: HandleSubmitEvent): Promise<void> => {
         e.preventDefault();
         
         try {
-            await addDoc(collection(db, "vehicles"), {
-                ...form,
-                status: form.status ? "in" : "out",
-                entryTime: Timestamp.fromDate(new Date(form.entryTime)),
-                exitTime: form.exitTime ? Timestamp.fromDate(new Date(form.exitTime)) : null,
-            });
-            alert("Vehicle added successfully");
-            setForm({
-                licenseNumber: "",
-                vehicleType: "Car",
-                ownerName: "",
-                ownerPhone: "",
-                status: true,
-                address: "",
-                entryTime: "",
-                exitTime: "",
-                parkingCharge: 0,
-            });
+            if (editMode && vehicleId) {
+                // Update existing vehicle
+                const vehicleRef = doc(db, "vehicles", vehicleId);
+                await updateDoc(vehicleRef, {
+                    ...form,
+                    status: form.status ? "in" : "out",
+                    entryTime: Timestamp.fromDate(new Date(form.entryTime)),
+                    exitTime: form.exitTime ? Timestamp.fromDate(new Date(form.exitTime)) : null,
+                });
+                alert("Vehicle updated successfully");
+            } else {
+                // Add new vehicle
+                await addDoc(collection(db, "vehicles"), {
+                    ...form,
+                    status: form.status ? "in" : "out",
+                    entryTime: Timestamp.fromDate(new Date(form.entryTime)),
+                    exitTime: form.exitTime ? Timestamp.fromDate(new Date(form.exitTime)) : null,
+                });
+                alert("Vehicle added successfully");
+            }
+            
+            router.push("/"); // Redirect after adding/updating
+            resetForm();
         } catch (err) {
             console.error(err);
-            alert("Error adding vehicle");
+            alert("Error submitting form");
         }
+    };
+
+    // Reset form to initial state
+    const resetForm = () => {
+        setForm({
+            licenseNumber: "",
+            vehicleType: "Car",
+            ownerName: "",
+            ownerPhone: "",
+            status: true,
+            address: "",
+            entryTime: "",
+            exitTime: "",
+            parkingCharge: 0,
+        });
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            <h1 className="text-5xl font-bold text-center p-5">Parking Form</h1>
+            <h1 className="text-5xl font-bold text-center p-5">{editMode ? "Edit Vehicle" : "Add Vehicle"}</h1>
             <input
                 name="licenseNumber"
-                type="number"
+                type="text"
                 value={form.licenseNumber}
                 onChange={handleChange}
                 placeholder="License Number"
@@ -118,14 +162,13 @@ export default function ParkingForm() {
             />
             <input
                 name="ownerPhone"
-                type="number"
+                type="text"
                 value={form.ownerPhone}
                 onChange={handleChange}
                 placeholder="Owner Phone"
                 className="border p-2 rounded w-full"
                 required
             />
-            
             <label className="flex items-center">
                 <span className="mr-2">Status:</span>
                 <input
@@ -137,7 +180,6 @@ export default function ParkingForm() {
                 />
                 {form.status ? "In" : "Out"}
             </label>
-
             <input
                 name="entryTime"
                 value={form.entryTime}
@@ -153,7 +195,6 @@ export default function ParkingForm() {
                 type="datetime-local"
                 className="border p-2 rounded w-full"
             />
-
             <label className="flex items-center">
                 <span className="mr-2">Parking Charge:</span>
             </label>
@@ -164,7 +205,6 @@ export default function ParkingForm() {
                 placeholder="Parking Charge"
                 className="border p-2 rounded w-full bg-gray-200 cursor-not-allowed"
             />
-
             <textarea
                 name="address"
                 typeof="text"
@@ -175,7 +215,7 @@ export default function ParkingForm() {
                 required
             />
             <button type="submit" className="bg-blue-500 text-white p-2 w-full">
-                Add Vehicle
+                {editMode ? "Update Vehicle" : "Add Vehicle"}
             </button>
         </form>
     );
